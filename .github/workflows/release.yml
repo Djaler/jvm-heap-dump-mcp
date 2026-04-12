@@ -30,9 +30,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Update npm package version
         working-directory: npm
-        run: npm version ${{ env.VERSION }} --no-git-tag-version
+        run: npm version ${{ env.VERSION }} --no-git-tag-version --allow-same-version
       - name: Publish to npm
         working-directory: npm
-        run: npm publish
+        run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
