@@ -58,6 +58,20 @@ The agent will use the tools to:
 | `find_strings` | Search String objects by regex |
 | `inspect_array` | View array contents (byte[], int[], Object[], etc.) |
 
+## Updating
+
+npx caches the package locally. To update to the latest version:
+
+```bash
+npx -y jvm-heap-dump-mcp@latest
+```
+
+This will fetch the newest version and download the corresponding JAR. You can also clear the JAR cache manually:
+
+```bash
+rm -rf ~/.cache/jvm-heap-dump-mcp/
+```
+
 ## Memory Requirements
 
 The MCP server needs heap proportional to the dump size. Default is `-Xmx4g`. For larger dumps, configure via environment variable:
