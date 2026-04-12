@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { createWriteStream, existsSync, mkdirSync } from 'node:fs';
+import { createWriteStream, existsSync, mkdirSync, renameSync, unlinkSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -124,16 +124,13 @@ async function ensureJar(version) {
   process.stderr.write(`  Cache   : ${cacheDir}\n`);
   process.stderr.write(`  Source  : ${url}\n`);
 
+  const tmpPath = jarPath + '.downloading';
   try {
-    await downloadFile(url, jarPath);
+    await downloadFile(url, tmpPath);
+    renameSync(tmpPath, jarPath);
   } catch (err) {
-    // Remove incomplete file on failure.
-    try {
-      const { unlinkSync } = await import('node:fs');
-      unlinkSync(jarPath);
-    } catch {
-      // Ignore cleanup errors.
-    }
+    // Remove incomplete temp file on failure.
+    try { unlinkSync(tmpPath); } catch { /* ignore */ }
     process.stderr.write(`\njvm-heap-dump-mcp: Download error — ${err.message}\n`);
     process.exit(1);
   }
