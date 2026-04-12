@@ -1,0 +1,10 @@
+{
+  "name": "jvm-heap-dump-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for JVM heap dump analysis using Eclipse MAT",
+  "bin": { "jvm-heap-dump-mcp": "./run.mjs" },
+  "keywords": ["mcp", "heap-dump", "jvm", "oom", "eclipse-mat", "memory-analyzer"],
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/Djaler/jvm-heap-dump-mcp" },
+  "engines": { "node": ">=18" }
+}

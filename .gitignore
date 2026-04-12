@@ -1,0 +1,20 @@
+build/
+.gradle/
+.idea/
+*.iml
+out/
+local.properties
+
+# Heap dumps (large binary files)
+*.hprof
+!src/test/resources/test-heap-dump.hprof
+
+# Local MCP config (contains absolute paths)
+.mcp.json
+
+# npm wrapper
+npm/node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db
