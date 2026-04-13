@@ -14,7 +14,7 @@ local.properties
 
 # npm wrapper
 npm/node_modules/
-npm/bin/
+npm/lib/
 
 # OS files
 .DS_Store

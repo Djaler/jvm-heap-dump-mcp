@@ -15,22 +15,22 @@ const execFileAsync = promisify(execFile);
  * @returns {string} Absolute path to the JAR file.
  */
 function resolveBundledJar() {
-  const binDir = join(__dirname, 'bin');
+  const libDir = join(__dirname, 'lib');
   let entries;
   try {
-    entries = readdirSync(binDir);
+    entries = readdirSync(libDir);
   } catch (err) {
-    process.stderr.write(`jvm-heap-dump-mcp: bundled JAR directory not found at ${binDir}.\n`);
+    process.stderr.write(`jvm-heap-dump-mcp: bundled JAR directory not found at ${libDir}.\n`);
     process.stderr.write('  This is a packaging bug — please reinstall or report at https://github.com/Djaler/jvm-heap-dump-mcp/issues\n');
     process.exit(1);
   }
   const jar = entries.find((f) => f.startsWith('jvm-heap-dump-mcp-') && f.endsWith('-all.jar'));
   if (!jar) {
-    process.stderr.write(`jvm-heap-dump-mcp: no JAR file found in ${binDir}.\n`);
+    process.stderr.write(`jvm-heap-dump-mcp: no JAR file found in ${libDir}.\n`);
     process.stderr.write(`  Contents: ${entries.join(', ')}\n`);
     process.exit(1);
   }
-  return join(binDir, jar);
+  return join(libDir, jar);
 }
 
 /**

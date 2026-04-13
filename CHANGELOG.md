@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-04-13
+
+### Fixed
+
+- Bundled JAR directory renamed from `bin/` to `lib/` to avoid conflict with the `bin` field in package.json, which caused npm to skip extracting `package.json` and `run.mjs` from the tarball (resulted in "Failed to reconnect" errors)
+
 ## [0.1.3] - 2026-04-13
 
 ### Changed

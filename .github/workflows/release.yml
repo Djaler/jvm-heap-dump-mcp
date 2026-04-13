@@ -33,8 +33,8 @@ jobs:
         run: npm version ${{ env.VERSION }} --no-git-tag-version --allow-same-version
       - name: Bundle JAR into npm package
         run: |
-          mkdir -p npm/bin
-          cp build/libs/jvm-heap-dump-mcp-${{ env.VERSION }}-all.jar npm/bin/
+          mkdir -p npm/lib
+          cp build/libs/jvm-heap-dump-mcp-${{ env.VERSION }}-all.jar npm/lib/
       - name: Publish to npm
         working-directory: npm
         run: npm publish --access public
