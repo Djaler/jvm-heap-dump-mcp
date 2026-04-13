@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-04-13
+
+### Changed
+
+- npm wrapper now answers the MCP `initialize` request instantly and downloads the JAR in the background. Tools become available via `notifications/tools/list_changed` once the download finishes. This eliminates the "Failed to reconnect" timeouts that occurred on slow or corporate networks.
+- JAR is no longer bundled in the npm package (~28 MB → ~4 KB tarball). This also fixes the macOS `ENOTEMPTY` corruption in npx cache when upgrading versions.
+- JAR is fetched from GitHub Releases into `~/.cache/jvm-heap-dump-mcp/` on first run per version. Subsequent startups are instant (warm cache).
+- `tools/call` invocations that arrive before the JAR is ready return a clear "still initializing" error (JSON-RPC `-32000`) instead of hanging.
+
 ## [0.1.4] - 2026-04-13
 
 ### Fixed

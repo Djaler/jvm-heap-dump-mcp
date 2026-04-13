@@ -20,7 +20,7 @@ Add to your project's `.mcp.json`:
 }
 ```
 
-Restart Claude Code. The server will download automatically on first use.
+Restart Claude Code. The MCP handshake completes instantly; the JAR (~28 MB) downloads in the background on first use. Tools become available via `notifications/tools/list_changed` once the download finishes (~30–60 seconds on a typical connection). If an agent calls a tool before the JAR is ready, it will get a clear "still initializing" error and can retry.
 
 ## What It Does
 
@@ -64,6 +64,18 @@ npx caches the package locally. To update to the latest version:
 
 ```bash
 npx -y jvm-heap-dump-mcp@latest
+```
+
+The JAR for each version is cached separately under `~/.cache/jvm-heap-dump-mcp/`, so upgrading only re-downloads the JAR if the version changed.
+
+## Troubleshooting
+
+**"Still initializing" errors that don't go away:** check `~/.cache/jvm-heap-dump-mcp/` for a `*.downloading` file — that means download failed mid-flight. Delete both the partial file and any cached JAR, then restart your MCP client.
+
+**"Failed to reconnect" after an update:** clear the npx cache and restart. The `_npx` cache can corrupt on macOS when a previous install was interrupted:
+
+```bash
+rm -rf ~/.npm/_npx
 ```
 
 ## Memory Requirements
