@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-04-13
+
+### Changed
+
+- JAR is now bundled inside the npm package for instant startup — no more runtime download from GitHub Releases, no MCP initialize timeouts on slow connections
+
+### Removed
+
+- Runtime JAR download from GitHub Releases
+- `~/.cache/jvm-heap-dump-mcp/` cache directory (can be safely deleted after upgrading)
+
 ## [0.1.2] - 2026-04-13
 
 ### Fixed

@@ -66,12 +66,6 @@ npx caches the package locally. To update to the latest version:
 npx -y jvm-heap-dump-mcp@latest
 ```
 
-This will fetch the newest version and download the corresponding JAR. You can also clear the JAR cache manually:
-
-```bash
-rm -rf ~/.cache/jvm-heap-dump-mcp/
-```
-
 ## Memory Requirements
 
 The MCP server needs heap proportional to the dump size. Default is `-Xmx4g`. For larger dumps, configure via environment variable:

@@ -31,6 +31,10 @@ jobs:
       - name: Update npm package version
         working-directory: npm
         run: npm version ${{ env.VERSION }} --no-git-tag-version --allow-same-version
+      - name: Bundle JAR into npm package
+        run: |
+          mkdir -p npm/bin
+          cp build/libs/jvm-heap-dump-mcp-${{ env.VERSION }}-all.jar npm/bin/
       - name: Publish to npm
         working-directory: npm
         run: npm publish --access public

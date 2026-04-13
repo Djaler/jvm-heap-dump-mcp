@@ -1,142 +1,36 @@
 #!/usr/bin/env node
 
-import { createWriteStream, existsSync, mkdirSync, renameSync, unlinkSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
-import { spawn } from 'node:child_process';
-import { pipeline } from 'node:stream/promises';
-import { createHash } from 'node:crypto';
+import { readdirSync } from 'node:fs';
+import { spawn, execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const execFileAsync = promisify(execFile);
 
 /**
- * Resolve the cache directory, respecting XDG_CACHE_HOME.
+ * Locate the bundled shadow JAR inside the npm package (npm/bin/).
  *
- * @returns {string} Absolute path to the cache directory for this package.
+ * @returns {string} Absolute path to the JAR file.
  */
-function resolveCacheDir() {
-  const xdgCache = process.env.XDG_CACHE_HOME;
-  const base = xdgCache ?? join(homedir(), '.cache');
-  return join(base, 'jvm-heap-dump-mcp');
-}
-
-/**
- * Read the package version from this package's package.json.
- *
- * @returns {Promise<string>} The version string, e.g. "0.1.0".
- */
-async function readVersion() {
-  const pkgPath = join(__dirname, 'package.json');
-  const raw = await readFile(pkgPath, 'utf8');
-  const pkg = JSON.parse(raw);
-  return pkg.version;
-}
-
-/**
- * Build the GitHub Releases download URL for the shadow JAR.
- *
- * @param {string} version - Package version, e.g. "0.1.0".
- * @returns {string} Full HTTPS URL to the JAR asset.
- */
-function jarUrl(version) {
-  return `https://github.com/Djaler/jvm-heap-dump-mcp/releases/download/v${version}/jvm-heap-dump-mcp-${version}-all.jar`;
-}
-
-/**
- * Download a URL to a local file path, printing progress to stderr.
- *
- * @param {string} url - Remote URL to download.
- * @param {string} dest - Destination file path.
- * @returns {Promise<void>}
- */
-async function downloadFile(url, dest) {
-  const response = await fetch(url, { redirect: 'follow' });
-
-  if (!response.ok) {
-    throw new Error(`Download failed: HTTP ${response.status} ${response.statusText} — ${url}`);
-  }
-
-  const contentLength = response.headers.get('content-length');
-  const total = contentLength ? parseInt(contentLength, 10) : null;
-  let downloaded = 0;
-  let lastReported = -1;
-
-  const reportProgress = (bytes) => {
-    downloaded += bytes;
-    if (total) {
-      const pct = Math.floor((downloaded / total) * 100);
-      if (pct !== lastReported && pct % 5 === 0) {
-        lastReported = pct;
-        process.stderr.write(`\r  Downloading... ${pct}% (${(downloaded / 1024 / 1024).toFixed(1)} MB / ${(total / 1024 / 1024).toFixed(1)} MB)`);
-      }
-    } else {
-      const mb = (downloaded / 1024 / 1024).toFixed(1);
-      if (Math.floor(downloaded / (512 * 1024)) !== lastReported) {
-        lastReported = Math.floor(downloaded / (512 * 1024));
-        process.stderr.write(`\r  Downloading... ${mb} MB`);
-      }
-    }
-  };
-
-  const out = createWriteStream(dest);
-
-  // Wrap the response body to intercept chunk sizes for progress reporting.
-  const { Readable } = await import('node:stream');
-  const readable = Readable.fromWeb
-    ? Readable.fromWeb(response.body)
-    : response.body;
-
-  const trackingStream = new (await import('node:stream')).Transform({
-    transform(chunk, _encoding, callback) {
-      reportProgress(chunk.length);
-      callback(null, chunk);
-    },
-  });
-
-  await pipeline(readable, trackingStream, out);
-  process.stderr.write('\n');
-}
-
-/**
- * Ensure the JAR for the given version is present in the cache dir.
- * Downloads it if missing.
- *
- * @param {string} version - Package version.
- * @returns {Promise<string>} Absolute path to the cached JAR file.
- */
-async function ensureJar(version) {
-  const cacheDir = resolveCacheDir();
-  mkdirSync(cacheDir, { recursive: true });
-
-  const jarName = `jvm-heap-dump-mcp-${version}-all.jar`;
-  const jarPath = join(cacheDir, jarName);
-
-  if (existsSync(jarPath)) {
-    return jarPath;
-  }
-
-  const url = jarUrl(version);
-  process.stderr.write(`jvm-heap-dump-mcp: JAR not found in cache.\n`);
-  process.stderr.write(`  Version : ${version}\n`);
-  process.stderr.write(`  Cache   : ${cacheDir}\n`);
-  process.stderr.write(`  Source  : ${url}\n`);
-
-  const tmpPath = jarPath + '.downloading';
+function resolveBundledJar() {
+  const binDir = join(__dirname, 'bin');
+  let entries;
   try {
-    await downloadFile(url, tmpPath);
-    renameSync(tmpPath, jarPath);
+    entries = readdirSync(binDir);
   } catch (err) {
-    // Remove incomplete temp file on failure.
-    try { unlinkSync(tmpPath); } catch { /* ignore */ }
-    process.stderr.write(`\njvm-heap-dump-mcp: Download error — ${err.message}\n`);
+    process.stderr.write(`jvm-heap-dump-mcp: bundled JAR directory not found at ${binDir}.\n`);
+    process.stderr.write('  This is a packaging bug — please reinstall or report at https://github.com/Djaler/jvm-heap-dump-mcp/issues\n');
     process.exit(1);
   }
-
-  process.stderr.write(`jvm-heap-dump-mcp: JAR downloaded successfully.\n`);
-  return jarPath;
+  const jar = entries.find((f) => f.startsWith('jvm-heap-dump-mcp-') && f.endsWith('-all.jar'));
+  if (!jar) {
+    process.stderr.write(`jvm-heap-dump-mcp: no JAR file found in ${binDir}.\n`);
+    process.stderr.write(`  Contents: ${entries.join(', ')}\n`);
+    process.exit(1);
+  }
+  return join(binDir, jar);
 }
 
 /**
@@ -146,10 +40,6 @@ async function ensureJar(version) {
  * @returns {Promise<void>}
  */
 async function checkJava() {
-  const { execFile } = await import('node:child_process');
-  const { promisify } = await import('node:util');
-  const execFileAsync = promisify(execFile);
-
   let output;
   try {
     // java -version writes to stderr.
@@ -160,16 +50,13 @@ async function checkJava() {
       process.stderr.write('jvm-heap-dump-mcp: "java" not found in PATH.\n');
       process.stderr.write('  Please install JDK 21 or later: https://adoptium.net\n');
       process.exit(1);
-    } else {
-      output = (err.stderr ?? '') + (err.stdout ?? '');
-      if (!output) {
-        process.stderr.write(`jvm-heap-dump-mcp: Failed to run java -version: ${err.message}\n`);
-        process.exit(1);
-      }
+    }
+    output = (err.stderr ?? '') + (err.stdout ?? '');
+    if (!output) {
+      process.stderr.write(`jvm-heap-dump-mcp: Failed to run java -version: ${err.message}\n`);
+      process.exit(1);
     }
   }
-
-  if (!output) return;
 
   // Output format examples:
   //   openjdk version "21.0.3" 2024-04-16
@@ -228,9 +115,8 @@ async function runServer(jarPath) {
 }
 
 async function main() {
-  const version = await readVersion();
   await checkJava();
-  const jarPath = await ensureJar(version);
+  const jarPath = resolveBundledJar();
   await runServer(jarPath);
 }
 
