@@ -22,6 +22,18 @@ Add to your project's `.mcp.json`:
 
 Restart Claude Code. The MCP handshake completes instantly; the JAR (~28 MB) downloads in the background on first use. Tools become available via `notifications/tools/list_changed` once the download finishes (~30–60 seconds on a typical connection). If an agent calls a tool before the JAR is ready, it will get a clear "still initializing" error and can retry.
 
+## Pre-downloading the JAR (recommended on slow or corporate networks)
+
+You can warm the cache explicitly before starting your MCP client. This runs the download synchronously in your terminal with visible progress and a clear error if something fails (SSL, proxy, etc.):
+
+```bash
+npx -y jvm-heap-dump-mcp --prepare
+```
+
+Once it prints `Done. JAR cached at ...`, every subsequent MCP server startup is instant. The JAR lives in `~/.cache/jvm-heap-dump-mcp/` keyed by version, so running `--prepare` after upgrading to a new version pre-downloads the new JAR without touching the old one.
+
+If a download gets interrupted (network drop, you kill the process, Claude Code restarts mid-download), the next `--prepare` or MCP startup **resumes from where it stopped** via HTTP Range — no need to re-download the ~28 MB from zero.
+
 ## What It Does
 
 Ask your AI agent to analyze a heap dump:
@@ -70,7 +82,7 @@ The JAR for each version is cached separately under `~/.cache/jvm-heap-dump-mcp/
 
 ## Troubleshooting
 
-**"Still initializing" errors that don't go away:** check `~/.cache/jvm-heap-dump-mcp/` for a `*.downloading` file — that means download failed mid-flight. Delete both the partial file and any cached JAR, then restart your MCP client.
+**"Still initializing" errors that don't go away:** the background download might be repeatedly getting killed. Run `npx -y jvm-heap-dump-mcp --prepare` in a terminal — you'll see the real error (network, SSL, proxy) in plain text. It also resumes from any partial `.downloading` file in `~/.cache/jvm-heap-dump-mcp/` instead of starting over.
 
 **"Failed to reconnect" after an update:** clear the npx cache and restart. The `_npx` cache can corrupt on macOS when a previous install was interrupted:
 

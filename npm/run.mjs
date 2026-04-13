@@ -20,7 +20,7 @@
 
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { createWriteStream, existsSync, mkdirSync, renameSync, unlinkSync } from 'node:fs';
+import { createWriteStream, existsSync, mkdirSync, renameSync, statSync, unlinkSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -108,68 +108,127 @@ async function checkJava() {
 
 /**
  * Download url → dest with atomic rename via .downloading suffix.
- * Reports progress to stderr.
+ * Supports resume via HTTP Range when startOffset > 0.
+ *
+ * On error, the .downloading file is KEPT so a subsequent run can resume
+ * from wherever it left off.
  *
  * @param {string} url
  * @param {string} dest
+ * @param {object} [opts]
+ * @param {number} [opts.startOffset=0]
+ * @param {NodeJS.WriteStream} [opts.logStream]
  * @returns {Promise<void>}
  */
-async function downloadFile(url, dest) {
+async function downloadFile(url, dest, opts = {}) {
+  const startOffset = opts.startOffset ?? 0;
+  const logStream = opts.logStream ?? process.stderr;
   const tmp = dest + '.downloading';
-  try {
-    const response = await fetch(url, { redirect: 'follow' });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status} ${response.statusText}`);
-    }
-    if (!response.body) {
-      throw new Error('Empty response body');
-    }
-    const total = parseInt(response.headers.get('content-length') ?? '0', 10);
-    let downloaded = 0;
-    let lastPct = -1;
 
-    const tracker = new Transform({
-      transform(chunk, _enc, cb) {
-        downloaded += chunk.length;
-        if (total) {
-          const pct = Math.floor((downloaded / total) * 100);
-          if (pct !== lastPct && pct % 10 === 0) {
-            lastPct = pct;
-            process.stderr.write(
-              `jvm-heap-dump-mcp: downloading JAR... ${pct}% (${(downloaded / 1024 / 1024).toFixed(1)} MB)\n`
-            );
-          }
-        }
-        cb(null, chunk);
-      },
-    });
+  const headers = startOffset > 0 ? { Range: `bytes=${startOffset}-` } : {};
+  const response = await fetch(url, { redirect: 'follow', headers });
 
-    const body = Readable.fromWeb(response.body);
-    const out = createWriteStream(tmp);
-    await pipeline(body, tracker, out);
-    renameSync(tmp, dest);
-    process.stderr.write('jvm-heap-dump-mcp: JAR downloaded successfully.\n');
-  } catch (err) {
-    try { unlinkSync(tmp); } catch { /* ignore */ }
-    throw err;
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status} ${response.statusText}`);
   }
+  if (!response.body) {
+    throw new Error('Empty response body');
+  }
+
+  // If we asked for a range but the server returned 200, it didn't honor
+  // the Range header. Fall back to a full download (overwrite).
+  const serverHonoredRange = startOffset > 0 && response.status === 206;
+  const contentLength = parseInt(response.headers.get('content-length') ?? '0', 10);
+  const total = serverHonoredRange ? startOffset + contentLength : contentLength;
+  const initialBytes = serverHonoredRange ? startOffset : 0;
+
+  if (startOffset > 0 && !serverHonoredRange) {
+    logStream.write('jvm-heap-dump-mcp: server ignored Range request, restarting from zero.\n');
+  }
+
+  let downloaded = initialBytes;
+  let lastPct = total > 0 ? Math.floor((initialBytes / total) * 100) : -1;
+
+  const tracker = new Transform({
+    transform(chunk, _enc, cb) {
+      downloaded += chunk.length;
+      if (total) {
+        const pct = Math.floor((downloaded / total) * 100);
+        if (pct !== lastPct && pct % 10 === 0) {
+          lastPct = pct;
+          logStream.write(
+            `jvm-heap-dump-mcp: downloading JAR... ${pct}% (${(downloaded / 1024 / 1024).toFixed(1)} MB / ${(total / 1024 / 1024).toFixed(1)} MB)\n`
+          );
+        }
+      }
+      cb(null, chunk);
+    },
+  });
+
+  const body = Readable.fromWeb(response.body);
+  const out = createWriteStream(tmp, serverHonoredRange ? { flags: 'a' } : undefined);
+  await pipeline(body, tracker, out);
+  renameSync(tmp, dest);
+  logStream.write('jvm-heap-dump-mcp: JAR downloaded successfully.\n');
 }
 
 /**
- * Ensure JAR for the given version is in the cache. Downloads if missing.
+ * Ensure JAR for the given version is in the cache. Downloads if missing,
+ * resumes from a partial .downloading file if present.
  *
  * @param {string} version
+ * @param {object} [opts]
+ * @param {NodeJS.WriteStream} [opts.logStream]
  * @returns {Promise<string>} path to the cached JAR
  */
-async function ensureJar(version) {
+async function ensureJar(version, opts = {}) {
+  const logStream = opts.logStream ?? process.stderr;
   const cacheDir = resolveCacheDir();
   mkdirSync(cacheDir, { recursive: true });
   const jarPath = join(cacheDir, `jvm-heap-dump-mcp-${version}-all.jar`);
   if (existsSync(jarPath)) return jarPath;
 
+  const tmpPath = jarPath + '.downloading';
   const url = jarUrl(version);
-  process.stderr.write(`jvm-heap-dump-mcp: cache miss, fetching ${url}\n`);
-  await downloadFile(url, jarPath);
+  let startOffset = 0;
+
+  if (existsSync(tmpPath)) {
+    const partialSize = statSync(tmpPath).size;
+    // HEAD the final URL to learn the total size. If HEAD fails, we'll just
+    // attempt a full download (overwriting the partial).
+    let totalSize = 0;
+    try {
+      const head = await fetch(url, { method: 'HEAD', redirect: 'follow' });
+      if (head.ok) {
+        totalSize = parseInt(head.headers.get('content-length') ?? '0', 10);
+      }
+    } catch (err) {
+      logStream.write(`jvm-heap-dump-mcp: HEAD probe failed (${err.message}), will retry full download.\n`);
+    }
+
+    if (totalSize > 0 && partialSize === totalSize) {
+      // Fully downloaded but never renamed (e.g. killed between pipeline end and rename).
+      renameSync(tmpPath, jarPath);
+      return jarPath;
+    }
+    if (totalSize > 0 && partialSize > totalSize) {
+      // Partial file is larger than the published JAR — corrupted. Discard.
+      logStream.write(`jvm-heap-dump-mcp: partial file size (${partialSize}) exceeds expected (${totalSize}), discarding.\n`);
+      unlinkSync(tmpPath);
+    } else if (partialSize > 0) {
+      logStream.write(
+        `jvm-heap-dump-mcp: resuming download from ${(partialSize / 1024 / 1024).toFixed(1)} MB\n`
+      );
+      startOffset = partialSize;
+    }
+  }
+
+  logStream.write(
+    startOffset > 0
+      ? `jvm-heap-dump-mcp: resuming fetch of ${url}\n`
+      : `jvm-heap-dump-mcp: cache miss, fetching ${url}\n`
+  );
+  await downloadFile(url, jarPath, { startOffset, logStream });
   return jarPath;
 }
 
@@ -492,9 +551,46 @@ async function runPending(version) {
 // Entry point
 // ===================================================================
 
+/**
+ * Handle `npx jvm-heap-dump-mcp --prepare`: synchronously download the JAR
+ * with progress on stdout, then exit. Intended to be run once by the user
+ * to warm the cache before starting the MCP client.
+ *
+ * @param {string} version
+ */
+async function runPrepare(version) {
+  const jarPath = join(resolveCacheDir(), `jvm-heap-dump-mcp-${version}-all.jar`);
+  if (existsSync(jarPath)) {
+    process.stdout.write(`JAR already cached at ${jarPath}\n`);
+    return;
+  }
+  process.stdout.write(`Downloading jvm-heap-dump-mcp v${version} JAR (~28 MB)...\n`);
+  try {
+    await ensureJar(version, { logStream: process.stdout });
+  } catch (err) {
+    process.stderr.write(`\njvm-heap-dump-mcp: download failed — ${err.message}\n`);
+    process.stderr.write(
+      'Partial download preserved — re-run the same command to resume from where it stopped.\n'
+    );
+    process.exit(1);
+  }
+  process.stdout.write(
+    `\nDone. JAR cached at ${jarPath}.\nThe MCP server will now start instantly on subsequent launches.\n`
+  );
+}
+
 async function main() {
+  const arg = process.argv[2];
+  const isPrepare = arg === '--prepare' || arg === 'prepare';
+
   await checkJava();
   const version = await readVersion();
+
+  if (isPrepare) {
+    await runPrepare(version);
+    return;
+  }
+
   const jarPath = join(resolveCacheDir(), `jvm-heap-dump-mcp-${version}-all.jar`);
 
   if (existsSync(jarPath)) {

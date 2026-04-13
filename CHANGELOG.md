@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-04-13
+
+### Added
+
+- `npx -y jvm-heap-dump-mcp --prepare` — downloads the JAR synchronously with progress on stdout and exits, so users on slow or corporate networks can warm the cache before starting the MCP client.
+
+### Fixed
+
+- Interrupted JAR downloads now resume via HTTP Range instead of restarting from zero. A `.downloading` file is no longer deleted on error, so subsequent runs pick up where the previous one left off.
+- Pre-flight `HEAD` check detects a fully-downloaded-but-unrenamed file (race if the wrapper was killed between pipeline end and rename) and completes the rename without re-downloading.
+
 ## [0.1.5] - 2026-04-13
 
 ### Changed
