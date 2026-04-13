@@ -312,14 +312,20 @@ object MatBootstrap {
      */
     private fun createMockBundle(symbolicName: String): Any {
         val bundleClass = Class.forName("org.osgi.framework.Bundle")
+        val systemCl = ClassLoader.getSystemClassLoader()
         return Proxy.newProxyInstance(
             bundleClass.classLoader,
             arrayOf(bundleClass)
-        ) { _, method, _ ->
+        ) { _, method, args ->
             when (method.name) {
                 "getSymbolicName" -> symbolicName
                 "getBundleId" -> 0L
                 "getState" -> 32 // Bundle.ACTIVE
+                // Delegate class/resource lookups to the system classloader so MAT can find
+                // classes like com.ibm.icu.text.MessageFormat when loading via bundle.loadClass().
+                "loadClass" -> systemCl.loadClass(args[0] as String)
+                "getResource" -> systemCl.getResource(args[0] as String)
+                "getResources" -> systemCl.getResources(args[0] as String)
                 else -> null
             }
         }

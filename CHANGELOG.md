@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-04-13
+
+### Fixed
+
+- `NoClassDefFoundError` when MAT tries to load classes via bundle classloader on certain heap dumps — mock Bundle now delegates `loadClass`/`getResource`/`getResources` to the system classloader
+
+### Changed
+
+- Error messages now include exception class name and root cause for easier diagnosis
+
 ## [0.1.1] - 2026-04-13
 
 ### Fixed

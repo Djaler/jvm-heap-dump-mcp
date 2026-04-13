@@ -18,10 +18,19 @@ fun errorResult(message: String) = CallToolResult(
     isError = true,
 )
 
-fun errorResult(e: Throwable) = CallToolResult(
-    content = listOf(TextContent("Error: ${e.message ?: e.javaClass.simpleName}")),
-    isError = true,
-)
+fun errorResult(e: Throwable): CallToolResult {
+    val root = generateSequence(e) { it.cause }.last()
+    val msg = buildString {
+        append("Error: ").append(e.javaClass.simpleName)
+        e.message?.let { append(": ").append(it) }
+        if (root !== e) {
+            appendLine()
+            append("Caused by: ").append(root.javaClass.simpleName)
+            root.message?.let { append(": ").append(it) }
+        }
+    }
+    return CallToolResult(content = listOf(TextContent(msg)), isError = true)
+}
 
 fun textResult(text: String) = CallToolResult(
     content = listOf(TextContent(text)),
