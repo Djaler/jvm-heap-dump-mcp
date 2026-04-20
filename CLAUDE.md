@@ -64,6 +64,32 @@ java -Xmx4g -jar build/libs/jvm-heap-dump-mcp-*-all.jar
 ./gradlew test -PincludeIntegration
 ```
 
+## Test Heap Dump Generator
+
+Separate Gradle submodule `heap-dump-generator` — a standalone Kotlin program that generates test heap dumps with known data structures.
+
+```bash
+./gradlew generateTestHeapDump
+```
+
+Produces two files in `src/test/resources/`:
+- `test-heap-dump.hprof` — baseline dump (~7 MB)
+- `test-heap-dump-leaked.hprof` — baseline + 500 `LeakedObject` instances (~7.5 MB)
+
+### Data structures in the dumps
+
+| Class (package `...generator.model`) | Count | Purpose |
+|--------------------------------------|-------|---------|
+| `CollectionHolder` | 100 | HashMaps/ArrayLists with varying fill rates (empty, sparse, half, full) |
+| `KnownMaps` | 1 | HashMap, ConcurrentHashMap, LinkedHashMap with known key/value types and counts |
+| `RetainedTreeRoot` / `RetainedTreeNode` | 1 root + 9 nodes | Tree with ~90 KB known retained size |
+| `ThreadLocalPayload` | 2 | ThreadLocal values in named threads (`test-thread-1`, `test-thread-2`) |
+| `LeakedObject` | 0 / 500 | Absent in baseline, present in leaked dump (for histogram comparison) |
+
+### When to regenerate
+
+Re-run `./gradlew generateTestHeapDump` after changing any code in `heap-dump-generator/`. Commit the updated `.hprof` files.
+
 ## Dev Scripts
 
 - `scripts/inspect-class.sh <ClassName> [jar]` — inspect a class via javap; searches gradle caches if jar is omitted

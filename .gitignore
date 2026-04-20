@@ -8,6 +8,7 @@ local.properties
 # Heap dumps (large binary files)
 *.hprof
 !src/test/resources/test-heap-dump.hprof
+!src/test/resources/test-heap-dump-leaked.hprof
 
 # Local MCP config (contains absolute paths)
 .mcp.json

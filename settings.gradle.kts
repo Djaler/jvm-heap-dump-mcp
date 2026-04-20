@@ -1,5 +1,7 @@
 rootProject.name = "jvm-heap-dump-mcp"
 
+include("heap-dump-generator")
+
 pluginManagement {
     repositories {
         gradlePluginPortal()

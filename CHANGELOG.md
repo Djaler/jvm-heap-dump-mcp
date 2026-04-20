@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `heap-dump-generator` submodule — standalone Kotlin program that generates test heap dumps with known data structures (collections with varying fill rates, maps with known contents, ThreadLocal values, retained set tree, leaked objects). Produces two dumps: baseline and "leaked" for histogram comparison tests.
+- Gradle task `generateTestHeapDump` to regenerate test heap dumps.
+
 ## [0.1.6] - 2026-04-13
 
 ### Added

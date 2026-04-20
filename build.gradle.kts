@@ -74,3 +74,15 @@ tasks.test {
     }
     maxHeapSize = "2g"
 }
+
+tasks.register<JavaExec>("generateTestHeapDump") {
+    group = "test data"
+    description = "Generates test heap dumps for integration tests"
+    classpath = project(":heap-dump-generator").sourceSets["main"].runtimeClasspath
+    mainClass.set("com.github.djaler.jvmheapdumpmcp.generator.HeapDumpGeneratorKt")
+    args = listOf(
+        file("src/test/resources/test-heap-dump.hprof").absolutePath,
+        file("src/test/resources/test-heap-dump-leaked.hprof").absolutePath,
+    )
+    maxHeapSize = "256m"
+}
