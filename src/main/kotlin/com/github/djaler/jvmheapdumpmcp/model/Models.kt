@@ -131,3 +131,65 @@ data class ClassInstanceEntry(
     val retainedHeap: Long,
     val label: String? = null,
 )
+
+@Serializable
+data class CollectionFillRateResult(
+    val className: String,
+    val totalCount: Int,
+    val buckets: List<FillRateBucket>,
+)
+
+@Serializable
+data class FillRateBucket(
+    val rangeLabel: String,
+    val count: Int,
+    val totalShallowHeap: Long,
+    val totalWastedHeap: Long,
+)
+
+@Serializable
+data class MapContentsResult(
+    val objectId: Int,
+    val className: String,
+    val entryCount: Int,
+    val totalRetainedHeap: Long,
+    val keyTypeSummary: List<TypeSummary>,
+    val valueTypeSummary: List<TypeSummary>,
+    val topEntries: List<MapEntryInfo>,
+)
+
+@Serializable
+data class TypeSummary(
+    val className: String,
+    val count: Int,
+    val totalRetainedHeap: Long,
+)
+
+@Serializable
+data class MapEntryInfo(
+    val keyObjectId: Int,
+    val keyClassName: String,
+    val keyLabel: String?,
+    val valueObjectId: Int,
+    val valueClassName: String,
+    val valueRetainedHeap: Long,
+)
+
+@Serializable
+data class HistogramDiffEntry(
+    val className: String,
+    val objectCountDelta: Long,
+    val shallowHeapDelta: Long,
+    val objectCount1: Long,
+    val objectCount2: Long,
+)
+
+@Serializable
+data class ThreadLocalInfo(
+    val threadLocalObjectId: Int?,
+    val threadLocalClassName: String?,
+    val valueObjectId: Int,
+    val valueClassName: String,
+    val valueRetainedHeap: Long,
+    val valueLabel: String?,
+)

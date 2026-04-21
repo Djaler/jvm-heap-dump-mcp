@@ -27,6 +27,10 @@ object McpServerFactory {
         server.registerObjectTools()
         server.registerThreadTools()
         server.registerQueryTools()
+        server.registerRetainedSetTools()
+        server.registerCollectionTools()
+        server.registerCompareTools()
+        server.registerThreadLocalTools()
 
         return server
     }
