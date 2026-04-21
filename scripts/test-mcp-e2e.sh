@@ -10,6 +10,7 @@ JAVA="$JAVA_HOME/bin/java"
 JAR="$(ls "$PROJECT_DIR"/build/libs/jvm-heap-dump-mcp-*-all.jar 2>/dev/null | head -1)"
 if [ -z "$JAR" ]; then echo "JAR not found. Run ./gradlew shadowJar first." >&2; exit 1; fi
 DUMP="$PROJECT_DIR/src/test/resources/test-heap-dump.hprof"
+DUMP_LEAKED="$PROJECT_DIR/src/test/resources/test-heap-dump-leaked.hprof"
 STDERR_LOG=/tmp/mcp-e2e-stderr.log
 STDOUT_LOG=/tmp/mcp-e2e-stdout.log
 
@@ -178,10 +179,106 @@ THREADS_RESP=$(send_and_receive '{"jsonrpc":"2.0","id":9,"method":"tools/call","
 log "get_threads snippet: $(echo "$THREADS_RESP" | jq -r '.result.content[0].text' 2>/dev/null | head -3)"
 check_result "get_threads" "$THREADS_RESP"
 
+# ── get_retained_set ────────────────────────────────────────────────────────
+# Find a RetainedTreeRoot object via get_class_instances, then call get_retained_set
+
+log "Calling get_class_instances (RetainedTreeRoot)..."
+RTROOT_RESP=$(send_and_receive '{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"get_class_instances","arguments":{"id":"'"$SESSION_ID"'","className":"RetainedTreeRoot","limit":1}}}' 30)
+check_result "get_class_instances (RetainedTreeRoot)" "$RTROOT_RESP"
+# Extract objectId from the first data row: "| 1 | 12345 | ..."
+RTROOT_ID=$(echo "$RTROOT_RESP" | jq -r '.result.content[0].text' 2>/dev/null | sed -n 's/^| [0-9][0-9]* | \([0-9][0-9 ]*\) |.*/\1/p' | head -1 | tr -d ' ' || true)
+if [ -n "$RTROOT_ID" ]; then
+    log "RetainedTreeRoot objectId: $RTROOT_ID"
+    log "Calling get_retained_set..."
+    RETSET_RESP=$(send_and_receive '{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"get_retained_set","arguments":{"id":"'"$SESSION_ID"'","objectId":'"$RTROOT_ID"'}}}' 60)
+    log "get_retained_set snippet: $(echo "$RETSET_RESP" | jq -r '.result.content[0].text' 2>/dev/null | head -5)"
+    check_result "get_retained_set" "$RETSET_RESP"
+else
+    fail "get_retained_set — could not find RetainedTreeRoot objectId"
+fi
+
+# ── get_collection_fill_rates ───────────────────────────────────────────────
+
+log "Calling get_collection_fill_rates (java.util.HashMap)..."
+FILL_RESP=$(send_and_receive '{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"get_collection_fill_rates","arguments":{"id":"'"$SESSION_ID"'","className":"java.util.HashMap"}}}' 60)
+log "get_collection_fill_rates snippet: $(echo "$FILL_RESP" | jq -r '.result.content[0].text' 2>/dev/null | head -5)"
+check_result "get_collection_fill_rates" "$FILL_RESP"
+
+# ── get_map_contents ────────────────────────────────────────────────────────
+# Find KnownMaps.stringToObject field, then call get_map_contents
+
+log "Calling get_class_instances (KnownMaps)..."
+KM_RESP=$(send_and_receive '{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"get_class_instances","arguments":{"id":"'"$SESSION_ID"'","className":"KnownMaps","limit":1}}}' 30)
+check_result "get_class_instances (KnownMaps)" "$KM_RESP"
+KM_ID=$(echo "$KM_RESP" | jq -r '.result.content[0].text' 2>/dev/null | sed -n 's/^| [0-9][0-9]* | \([0-9][0-9 ]*\) |.*/\1/p' | head -1 | tr -d ' ' || true)
+if [ -n "$KM_ID" ]; then
+    log "KnownMaps objectId: $KM_ID"
+    log "Calling get_object_info to find stringToObject field..."
+    KM_INFO_RESP=$(send_and_receive '{"jsonrpc":"2.0","id":14,"method":"tools/call","params":{"name":"get_object_info","arguments":{"id":"'"$SESSION_ID"'","objectId":'"$KM_ID"'}}}' 30)
+    check_result "get_object_info (KnownMaps)" "$KM_INFO_RESP"
+    MAP_ID=$(echo "$KM_INFO_RESP" | jq -r '.result.content[0].text' 2>/dev/null | grep 'stringToObject' | grep -oE '[0-9]+' | tail -1 || true)
+    if [ -n "$MAP_ID" ]; then
+        log "stringToObject objectId: $MAP_ID"
+        log "Calling get_map_contents..."
+        MAP_RESP=$(send_and_receive '{"jsonrpc":"2.0","id":15,"method":"tools/call","params":{"name":"get_map_contents","arguments":{"id":"'"$SESSION_ID"'","objectId":'"$MAP_ID"'}}}' 60)
+        log "get_map_contents snippet: $(echo "$MAP_RESP" | jq -r '.result.content[0].text' 2>/dev/null | head -8)"
+        check_result "get_map_contents" "$MAP_RESP"
+    else
+        fail "get_map_contents — could not find stringToObject objectId"
+    fi
+else
+    fail "get_map_contents — could not find KnownMaps objectId"
+fi
+
+# ── get_thread_local_variables ──────────────────────────────────────────────
+# Find a thread, then call get_thread_local_variables
+
+log "Calling get_threads to find test threads..."
+# (reuse THREADS_RESP from above)
+THREAD_ID=$(echo "$THREADS_RESP" | jq -r '.result.content[0].text' 2>/dev/null | grep -oE 'objectId=[0-9]+' | head -1 | sed 's/objectId=//' || true)
+if [ -n "$THREAD_ID" ]; then
+    log "Thread objectId: $THREAD_ID"
+    log "Calling get_thread_local_variables..."
+    TL_RESP=$(send_and_receive '{"jsonrpc":"2.0","id":16,"method":"tools/call","params":{"name":"get_thread_local_variables","arguments":{"id":"'"$SESSION_ID"'","objectId":'"$THREAD_ID"'}}}' 30)
+    log "get_thread_local_variables snippet: $(echo "$TL_RESP" | jq -r '.result.content[0].text' 2>/dev/null | head -5)"
+    check_result "get_thread_local_variables" "$TL_RESP"
+else
+    fail "get_thread_local_variables — could not extract thread objectId"
+fi
+
+# ── compare_class_histograms ────────────────────────────────────────────────
+# Open the leaked dump as a second session, then compare
+
+log "Opening leaked heap dump for comparison..."
+OPEN_LEAKED_REQ=$(printf '{"jsonrpc":"2.0","id":17,"method":"tools/call","params":{"name":"open_heap_dump","arguments":{"path":"%s"}}}' "$DUMP_LEAKED")
+OPEN_LEAKED_RESP=$(send_and_receive "$OPEN_LEAKED_REQ" 120)
+check_result "open_heap_dump (leaked)" "$OPEN_LEAKED_RESP"
+SESSION_ID2=$(echo "$OPEN_LEAKED_RESP" | jq -r '.result.content[0].text' 2>/dev/null | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1 || true)
+if [ -n "$SESSION_ID2" ]; then
+    log "Leaked session ID: $SESSION_ID2"
+    log "Calling compare_class_histograms..."
+    CMP_RESP=$(send_and_receive '{"jsonrpc":"2.0","id":18,"method":"tools/call","params":{"name":"compare_class_histograms","arguments":{"id1":"'"$SESSION_ID"'","id2":"'"$SESSION_ID2"'"}}}' 120)
+    log "compare_class_histograms snippet: $(echo "$CMP_RESP" | jq -r '.result.content[0].text' 2>/dev/null | head -8)"
+    check_result "compare_class_histograms" "$CMP_RESP"
+
+    # Verify that LeakedObject appears in the diff
+    if echo "$CMP_RESP" | jq -r '.result.content[0].text' 2>/dev/null | grep -q "LeakedObject"; then
+        ok "compare_class_histograms found LeakedObject"
+    else
+        fail "compare_class_histograms did not find LeakedObject in diff"
+    fi
+
+    log "Closing leaked session..."
+    CLOSE2_RESP=$(send_and_receive '{"jsonrpc":"2.0","id":19,"method":"tools/call","params":{"name":"close_heap_dump","arguments":{"id":"'"$SESSION_ID2"'"}}}' 15)
+    check_result "close_heap_dump (leaked)" "$CLOSE2_RESP"
+else
+    fail "compare_class_histograms — could not open leaked dump"
+fi
+
 # ── close_heap_dump ──────────────────────────────────────────────────────────
 
 log "Calling close_heap_dump..."
-CLOSE_RESP=$(send_and_receive '{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"close_heap_dump","arguments":{"id":"'"$SESSION_ID"'"}}}' 15)
+CLOSE_RESP=$(send_and_receive '{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"close_heap_dump","arguments":{"id":"'"$SESSION_ID"'"}}}' 15)
 log "close_heap_dump: $(echo "$CLOSE_RESP" | jq -r '.result.content[0].text' 2>/dev/null)"
 check_result "close_heap_dump" "$CLOSE_RESP"
 
