@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-04-21
+
 ### Added
 
 - `get_retained_set` tool — retained set histogram for a single object, showing which classes would be GC'd if the object were removed
