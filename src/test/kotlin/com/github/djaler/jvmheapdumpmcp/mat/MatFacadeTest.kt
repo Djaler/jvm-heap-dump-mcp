@@ -15,7 +15,9 @@ class MatFacadeTest {
 
     companion object {
         private lateinit var snapshot: ISnapshot
+        private lateinit var leakedSnapshot: ISnapshot
         private const val SESSION_ID = "mat-facade-test-session"
+        private const val LEAKED_SESSION_ID = "mat-facade-test-leaked-session"
 
         @JvmStatic
         @BeforeAll
@@ -28,6 +30,14 @@ class MatFacadeTest {
             )
             val session = SnapshotManager.openSnapshot(heapDumpPath, SESSION_ID)
             snapshot = session.snapshot
+
+            val leakedDumpPath: Path = Paths.get(
+                checkNotNull(MatFacadeTest::class.java.classLoader.getResource("test-heap-dump-leaked.hprof")) {
+                    "test-heap-dump-leaked.hprof not found in test resources"
+                }.toURI()
+            )
+            val leakedSession = SnapshotManager.openSnapshot(leakedDumpPath, LEAKED_SESSION_ID)
+            leakedSnapshot = leakedSession.snapshot
         }
     }
 
@@ -170,5 +180,136 @@ class MatFacadeTest {
             assertNotNull(s.value, "String value should not be null")
             assertTrue(s.retainedHeap >= 0, "Retained heap should be non-negative")
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // get_retained_set
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `getRetainedSet should return histogram of retained objects`() {
+        // Find RetainedTreeRoot instance
+        val instances = MatFacade.getClassInstances(snapshot, "RetainedTreeRoot", "RETAINED_HEAP", 1)
+        assertTrue(instances.isNotEmpty(), "Should find RetainedTreeRoot in test dump")
+        val rootId = instances.first().objectId
+
+        val entries = MatFacade.getRetainedSet(snapshot, rootId, 50)
+        assertTrue(entries.isNotEmpty(), "Retained set should have entries")
+
+        // Should contain RetainedTreeNode (9 nodes in the tree)
+        val nodeEntry = entries.find { it.className.contains("RetainedTreeNode") }
+        assertNotNull(nodeEntry, "Retained set should include RetainedTreeNode instances")
+        assertTrue(nodeEntry.objectCount > 0, "Should have multiple RetainedTreeNode instances")
+
+        // Entries should be sorted by retained heap descending
+        for (i in 0 until entries.size - 1) {
+            assertTrue(
+                entries[i].retainedHeap >= entries[i + 1].retainedHeap,
+                "Retained set histogram should be sorted by retained heap descending"
+            )
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // compare_class_histograms
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `compareClassHistograms should detect LeakedObject growth`() {
+        val diffs = MatFacade.compareClassHistograms(snapshot, leakedSnapshot, "OBJECT_COUNT_DELTA", 100)
+        assertTrue(diffs.isNotEmpty(), "Should have differences between baseline and leaked dumps")
+
+        val leakedDiff = diffs.find { it.className.contains("LeakedObject") }
+        assertNotNull(leakedDiff, "Should find LeakedObject in histogram diff")
+        assertTrue(leakedDiff.objectCountDelta > 0, "LeakedObject count should increase in leaked dump")
+        assertTrue(leakedDiff.objectCount1 == 0L, "Baseline dump should have 0 LeakedObject instances")
+        assertTrue(leakedDiff.objectCount2 == 500L, "Leaked dump should have 500 LeakedObject instances")
+    }
+
+    // -------------------------------------------------------------------------
+    // get_collection_fill_rates
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `getCollectionFillRates should analyze HashMap instances`() {
+        val result = MatFacade.getCollectionFillRates(snapshot, "java.util.HashMap", 1000)
+        assertTrue(result.totalCount > 0, "Should find HashMap instances in test dump")
+        assertTrue(result.buckets.isNotEmpty(), "Should have fill rate buckets")
+
+        // CollectionHolder creates maps with varying fill rates, including empty ones
+        val emptyBucket = result.buckets.find { it.rangeLabel.contains("empty") }
+        assertNotNull(emptyBucket, "Should have an empty bucket")
+        assertTrue(emptyBucket.count > 0, "Should have some empty HashMaps")
+    }
+
+    // -------------------------------------------------------------------------
+    // get_map_contents
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `getMapContents should read map entries`() {
+        // Find KnownMaps instance and its stringToObject HashMap
+        val knownMaps = MatFacade.getClassInstances(snapshot, "KnownMaps", "RETAINED_HEAP", 1)
+        assertTrue(knownMaps.isNotEmpty(), "Should find KnownMaps in test dump")
+
+        val objInfo = MatFacade.getObjectInfo(snapshot, knownMaps.first().objectId)
+        val stringToObjectField = objInfo.fields.find { it.name == "stringToObject" }
+        assertNotNull(stringToObjectField, "KnownMaps should have stringToObject field")
+        val mapObjectId = stringToObjectField.objectId
+        assertNotNull(mapObjectId, "stringToObject field should have objectId")
+
+        val result = MatFacade.getMapContents(snapshot, mapObjectId, 20)
+        assertTrue(result.entryCount > 0, "Map should have entries")
+        assertTrue(result.keyTypeSummary.isNotEmpty(), "Should have key type summary")
+        assertTrue(result.valueTypeSummary.isNotEmpty(), "Should have value type summary")
+
+        // Keys should be String type
+        val stringKeyType = result.keyTypeSummary.find { it.className == "java.lang.String" }
+        assertNotNull(stringKeyType, "Keys should be java.lang.String")
+    }
+
+    @Test
+    fun `getMapContents should read ConcurrentHashMap entries`() {
+        val knownMaps = MatFacade.getClassInstances(snapshot, "KnownMaps", "RETAINED_HEAP", 1)
+        assertTrue(knownMaps.isNotEmpty(), "Should find KnownMaps in test dump")
+
+        val objInfo = MatFacade.getObjectInfo(snapshot, knownMaps.first().objectId)
+        val concurrentMapField = objInfo.fields.find { it.name == "concurrentMap" }
+        assertNotNull(concurrentMapField, "KnownMaps should have concurrentMap field")
+        assertNotNull(concurrentMapField.objectId, "concurrentMap field should have objectId")
+
+        val result = MatFacade.getMapContents(snapshot, concurrentMapField.objectId!!, 20)
+        assertTrue(result.entryCount > 0, "ConcurrentHashMap should have entries")
+        assertTrue(result.keyTypeSummary.isNotEmpty(), "Should have key type summary")
+    }
+
+    // -------------------------------------------------------------------------
+    // get_thread_local_variables
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `getThreadLocalVariables should find ThreadLocal values in named threads`() {
+        // Find all Thread instances and look for one with ThreadLocals containing ThreadLocalPayload
+        val threadInstances = MatFacade.getClassInstances(snapshot, "java.lang.Thread", "RETAINED_HEAP", 200)
+        assertTrue(threadInstances.isNotEmpty(), "Should find Thread instances in heap dump")
+
+        // Try each thread to find one with ThreadLocalPayload
+        var foundPayload = false
+        for (threadInstance in threadInstances) {
+            val entries = try {
+                MatFacade.getThreadLocalVariables(snapshot, threadInstance.objectId)
+            } catch (_: Exception) {
+                continue
+            }
+
+            val payloadEntry = entries.find { it.valueClassName.contains("ThreadLocalPayload") }
+            if (payloadEntry != null) {
+                foundPayload = true
+                assertTrue(payloadEntry.valueRetainedHeap > 0, "ThreadLocalPayload should have positive retained heap")
+                assertNotNull(payloadEntry.threadLocalClassName, "ThreadLocal key should not be stale")
+                break
+            }
+        }
+        assertTrue(foundPayload, "Should find ThreadLocalPayload in at least one thread's ThreadLocals")
     }
 }
