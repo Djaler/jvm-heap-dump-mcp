@@ -19,7 +19,7 @@ com.github.djaler.jvmheapdumpmcp
   ├── Main.kt              — Entry point, stdio transport
   ├── server/              — MCP server wiring
   │   └── McpServerFactory — Tool registration
-  ├── tools/               — MCP tool handlers (one file per group)
+  ├── tools/               — MCP tool handlers (one file per group, 22 tools total)
   ├── mat/                 — Eclipse MAT integration (isolated)
   │   ├── MatBootstrap     — OSGi context mocking for standalone MAT
   │   ├── SnapshotManager  — ISnapshot session cache

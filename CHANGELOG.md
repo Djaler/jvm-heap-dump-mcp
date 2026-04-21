@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `get_retained_set` tool — retained set histogram for a single object, showing which classes would be GC'd if the object were removed
+- `get_collection_fill_rates` tool — analyzes fill rates of HashMap/ArrayList collections, identifying over-provisioned or empty collections
+- `get_map_contents` tool — inspects Map key/value contents with type distribution and top entries by retained size
+- `compare_class_histograms` tool — diffs two heap dumps by class histogram, essential for identifying memory leaks
+- `get_thread_local_variables` tool — lists ThreadLocal values for a given thread, with stale entry detection
 - `heap-dump-generator` submodule — standalone Kotlin program that generates test heap dumps with known data structures (collections with varying fill rates, maps with known contents, ThreadLocal values, retained set tree, leaked objects). Produces two dumps: baseline and "leaked" for histogram comparison tests.
 - Gradle task `generateTestHeapDump` to regenerate test heap dumps.
 
