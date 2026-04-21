@@ -10,6 +10,10 @@ local.properties
 !src/test/resources/test-heap-dump.hprof
 !src/test/resources/test-heap-dump-leaked.hprof
 
+# MAT index files (generated on first open, not needed in repo)
+*.index
+*.threads
+
 # Local MCP config (contains absolute paths)
 .mcp.json
 
